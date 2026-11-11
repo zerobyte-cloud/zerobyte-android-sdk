@@ -165,12 +165,27 @@ for (update in outcome.updates) {
 }
 ```
 
+- `sync` writes nothing when it has nothing new to send: a read that changed
+  nothing is not acknowledged, and a catch-up request with nothing to catch
+  up on gets no answer.
+- A long catch-up, for a device that is new or lost its copy, goes out over
+  several runs of about 8 MiB each (`TimelineRelay.CATCH_UP_BUDGET`, or
+  `commitBudget`); the timeline saves its place. `commitBudget` also caps how
+  much one run commits, and `hasPendingChange(slot)` says whether a key's
+  change is still waiting.
+- `outcome.waiting` counts messages kept for the next run because the mailbox
+  was full; `outcome.isPeerCurrent` says whether the other device has every
+  commit of this one.
 - A device that can produce its own values again (from a database, say) creates
   its timeline with `forgetsOwnValues` naming those collections and passes
-  `values` to `sync`; the timeline then keeps only their digests.
+  `values` to `sync`; the timeline then keeps only their digests. `values`
+  must return the value as committed: a catch-up leaves out a key whose value
+  has changed since, until the change is set and committed.
 - Two devices on the same network can skip the relay: send
   `timeline.state().encoded()`, answer the other's state with
-  `timeline.catchUp(heads)` and `receive` each part.
+  `timeline.catchUp(heads)` and `receive` each part. Pass commits made there
+  with `commit()` to `TimelineRelay.enqueue` as well: the relay carries them
+  unless the other device confirms them first.
 - A value must fit in one message (1 MiB); split larger values over keys.
 - A `Timeline` is not thread-safe: use it from one thread at a time.
 
