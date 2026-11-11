@@ -34,13 +34,15 @@ Then, in your app:
 repositories { mavenLocal() }
 
 dependencies {
-    implementation("cloud.zerobyte:zerobyte:1.1.0")
-    implementation("cloud.zerobyte:zerobyte-okhttp:1.1.0") // watch and signal sockets
+    implementation("cloud.zerobyte:zerobyte:1.2.0")
+    implementation("cloud.zerobyte:zerobyte-okhttp:1.2.0")   // watch and signal sockets
+    implementation("cloud.zerobyte:zerobyte-timeline:1.2.0") // keyed state, synced
 }
 ```
 
 `zerobyte` depends on the Kotlin standard library only. `zerobyte-okhttp` adds
 the WebSockets over OkHttp, since Android has no platform WebSocket client.
+`zerobyte-timeline` adds Timeline v1 and, like the core, needs nothing else.
 
 ## Usage
 
@@ -135,13 +137,51 @@ The app id identifies your app on your relay. Generate one with
 [zerobyte-relay](https://github.com/zerobyte-cloud/zerobyte-relay) and add it
 to `RELAY_APPS`.
 
+### Timeline
+
+`zerobyte-timeline` keeps one keyed state on both devices and sends only what
+changed, as commits that every device merges into the same order
+([Timeline v1](https://github.com/zerobyte-cloud/zerobyte-protocol/blob/master/timeline-v1.md)).
+A key's entry is the one with the latest stamp, so both copies converge
+whatever order things arrive in, and a change made after seeing another
+always wins over it.
+
+```kotlin
+import cloud.zerobyte.timeline.*
+
+val timeline = saved?.let(Timeline::decode) ?: Timeline()
+
+// Setting a key to the value it already holds stages nothing.
+timeline.set(TimelineSlot("plan", plan.id), planBytes)
+
+// Blocking, like the relay calls: run it off the main thread.
+val outcome = TimelineRelay.sync(
+    timeline, credentials, relay, Direction.C2P,
+    notify = Notify.SILENT,
+) { save(it.encoded()) }
+
+for (update in outcome.updates) {
+    apply(update.slot, update.value) // null: deleted
+}
+```
+
+- A device that can produce its own values again (from a database, say) creates
+  its timeline with `forgetsOwnValues` naming those collections and passes
+  `values` to `sync`; the timeline then keeps only their digests.
+- Two devices on the same network can skip the relay: send
+  `timeline.state().encoded()`, answer the other's state with
+  `timeline.catchUp(heads)` and `receive` each part.
+- A value must fit in one message (1 MiB); split larger values over keys.
+- A `Timeline` is not thread-safe: use it from one thread at a time.
+
 ## Testing
 
 ```sh
 ./gradlew test
 ```
 
-The tests run on the JVM: protocol vectors and `Link`. To also test against a
+The tests run on the JVM: protocol and timeline vectors, `Link`, and two
+timelines syncing through a relay in memory. To also test against a
 real relay, start one locally (see zerobyte-relay) and run:
 
 ```sh
@@ -151,10 +191,11 @@ RELAY_BASE=http://127.0.0.1:8080/v1/ RELAY_APP=<app id> ./gradlew test
 For the extensions, add an app with `signal` and `push=<topic>` and set
 `RELAY_SIGNAL_APP=<that app id>` as well.
 
-`zerobyte/src/test/resources/relay-v1.json` is copied from the independent
-reference in
+`zerobyte/src/test/resources/relay-v1.json` and
+`zerobyte-timeline/src/test/resources/timeline.json` are copied from the
+independent reference in
 [zerobyte-protocol](https://github.com/zerobyte-cloud/zerobyte-protocol/tree/master/spec).
-Never regenerate it from this library.
+Never regenerate them from this library.
 
 ## Licence
 

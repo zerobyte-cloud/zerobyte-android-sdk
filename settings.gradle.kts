@@ -15,4 +15,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "zerobyte-android-sdk"
-include(":zerobyte", ":zerobyte-okhttp")
+include(":zerobyte", ":zerobyte-okhttp", ":zerobyte-timeline")
